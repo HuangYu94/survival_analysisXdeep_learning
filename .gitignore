@@ -102,3 +102,13 @@ venv.bak/
 
 # mypy
 .mypy_cache/
+
+# pycharm IDEA
+.idea/
+
+# image data files and binary files
+images/
+checkpoints/
+tmp/
+train_results/
+*.tfrecords
