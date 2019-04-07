@@ -112,8 +112,14 @@ checkpoints/
 tmp/
 train_results/
 *.tfrecords
+*.jpg
+*.png
 
 # files not created by me
 inputs/
-model_*.py
+model_input.py
+model_params.py
+model_test.py
+model_tools.py
+model_train.py
 model.py
