@@ -353,4 +353,53 @@ def inference(images, keep_prob, batch_size, img_channel = 3):
     return softmax_linear
 
 
+def calc_at_risk(histology_image, survival_months, censored):
+    """
+    Helper function to ease the construction of loss function in Cox Partial likelihood
+    :param histology_image: tf.Tensor in shape [batch_size, hei, wid, channel] contains histological image
+    :param survival_months: tf.Tensor in shape [batch_size] contains number of months patients survived
+    :param censored: tf.Tensor in shape [batch_size] contains censoring information
+    :return:
+    histology_image_ordered: ordered histological images ranked in ascending order of survival months in shape
+    [batch_size, hei, wid, channel]
+    labels: dictionary contains ordered index('at_risk'), ordered survival months('survival'), patients whose deaths
+    observed('observed') all in shape [batch_size]
+    """
+    batch_size = survival_months.shape[0]
+    values, order = tf.nn.top_k(survival_months, batch_size, sorted=True)
+    values = tf.reverse(values, axis=[0])
+    order = tf.reverse(order, axis=[0])
+    sorted_survivals = values
+    labels = {}
+    labels['at_risk'] = tf.nn.top_k(sorted_survivals, batch_size, sorted=False).indices
+    labels['survival'] = sorted_survivals
+    labels['observed'] = tf.gather(1 - censored, order)
+    histology_image_ordered = tf.gather(histology_image, order)
+    # if experiment == 'image_genome':
+    #     Y['genomics'] = tf.gather(Y['genomics'], order)
+
+    return histology_image_ordered, labels
+
+
+def loss(logits, labels):
+    """Add L2Loss to all the trainable variables.
+    Add summary for "Loss" and "Loss/avg".
+    Args:
+      logits: Logits from inference().
+      labels: Labels from distorted_inputs or inputs(). 1-D tensor
+              of shape [batch_size]
+    Returns:
+      Loss tensor of type float.
+    """
+    factorized_logits = logits - tf.reduce_max(logits)  # subtract maximum to facilitate computation
+    exp = tf.exp(factorized_logits)
+    partial_sum = tf.cumsum(exp, reverse=True)  # get the reversed partial cumulative sum
+    log_at_risk = tf.log(tf.gather(partial_sum, tf.reshape(labels['at_risk'], [-1]))) + tf.reduce_max(
+        logits)  # add maximum back
+    diff = tf.subtract(logits, log_at_risk)
+    times = tf.reshape(diff, [-1]) * tf.cast(labels['observed'], tf.float32)
+    cost = - (tf.reduce_sum(times))
+    tf.add_to_collection('losses', cost)
+
+    return tf.add_n(tf.get_collection('losses'), name='total_loss')
 
