@@ -1,7 +1,21 @@
+import numpy as np
 import tensorflow as tf
+import time
+import datetime
 
-
+# define model parameters in the following:
 num_output_units = 1
+Keep_Prob = 0.5
+Batch_Size = 32
+Optimizer_Name = 'gd'
+Num_GPUs = 1
+Tower_Name = 'tower'
+Moving_Average_Decay = 0.9999
+Learing_Rate_Decay_Factor = 0.1
+Num_of_Model_Averaging = 5  # number of models to be averaged at test time
+Max_Steps = 100  # max number of batches
+Max_Num_Epoch = 100  # max number of epoch to run
+
 
 def initializer(stddev):
     initializer = {
@@ -12,6 +26,17 @@ def initializer(stddev):
     }
 
     return initializer
+
+
+def optimizer(lr):
+    optimizer = {
+        'gd': tf.train.GradientDescentOptimizer(lr),
+        'adagrad': tf.train.AdagradOptimizer(lr, initial_accumulator_value=0.1),
+        'adadelta': tf.train.AdadeltaOptimizer(lr),
+        'adam': tf.train.AdamOptimizer(lr)
+    }
+
+    return optimizer
 
 def _variable_on_cpu(name, shape, initializer):
   """Helper to create a Variable stored on CPU memory.
@@ -402,4 +427,237 @@ def loss(logits, labels):
     tf.add_to_collection('losses', cost)
 
     return tf.add_n(tf.get_collection('losses'), name='total_loss')
+
+
+def tower_loss(scope, tfrecord_iterator):
+    """
+    function to compute total loss given data set
+    :param scope: naming scope to get all losses
+    :param tfrecord_iterator: tfrecord iterator to get all data and labels by calling .next()
+    :return:
+    """
+    survival_months, censored, patient_ID, histology_image_ditorted = distorted_inputs(tfrecord_iterator)
+    images, labels = calc_at_risk(histology_image_ditorted, survival_months, censored)
+    # if args.m == 'image_genome':
+    #     labels['genomics'] = tf.cast(labels['genomics'], tf.float32)
+
+    logits = inference(images, Keep_Prob, Batch_Size)
+    _ = loss(logits, labels)
+    losses = tf.get_collection('losses', scope)
+    total_loss = tf.add_n(losses, name='total_loss')
+    # for l in losses + [total_loss]:
+    #     # Remove 'tower_[0-9]/' from the name in case this is a multi-GPU training
+    #     # session. This helps the clarity of presentation on tensorboard.
+    #     loss_name = re.sub('%s_[0-9]*/' % model.TOWER_NAME, '', l.op.name)
+    #     tf.summary.scalar(loss_name, l)
+
+    # "labels" is a dictionary in which the keywords are among: 'idx' for
+    # patients' indexes, 'survival', 'censored', 'observed', 'idh', 'codel',
+    # 'copynum' for copy numbers, 'at_risk'
+    return total_loss, logits, labels, images
+
+def average_gradients(tower_grads):
+    """Calculate the average gradient for each shared variable across all towers.
+    Note that this function provides a synchronization point across all towers.
+    Args:
+    tower_grads: List of lists of (gradient, variable) tuples. The outer list
+      is over individual gradients. The inner list is over the gradient
+      calculation for each tower.
+    Returns:
+     List of pairs of (gradient, variable) where the gradient has been averaged
+     across all towers.
+    """
+    average_grads = []
+    for grad_and_vars in zip(*tower_grads):
+        # Note that each grad_and_vars looks like the following:
+        #   ((grad0_gpu0, var0_gpu0), ... , (grad0_gpuN, var0_gpuN))
+        grads = []
+        for g, _ in grad_and_vars:
+          # Add 0 dimension to the gradients to represent the tower.
+          expanded_g = tf.expand_dims(g, 0)
+
+          # Append on a 'tower' dimension which we will average over below.
+          grads.append(expanded_g)
+
+    # Average over the 'tower' dimension.
+    grad = tf.concat(grads, 0)
+    grad = tf.reduce_mean(grad, 0)
+
+    # Keep in mind that the Variables are redundant because they are shared
+    # across towers. So .. we will just return the first tower's pointer to
+    # the Variable.
+    v = grad_and_vars[0][1]
+    grad_and_var = (grad, v)
+    average_grads.append(grad_and_var)
+    return average_grads
+
+
+def train():
+    """Train cnn for a number of steps."""
+    with tf.Graph().as_default(), tf.device('/cpu:0'):
+        # tf.set_random_seed(model_params.seed)
+        # Create a variable to count the number of train() calls. This equals the
+        # number of batches processed * FLAGS.num_gpus.
+        global_step = tf.get_variable(
+            'global_step', [],
+            initializer=tf.constant_initializer(0), trainable=False)
+
+        # Calculate the learning rate schedule.
+        # num_batches_per_epoch = (NUM_EXAMPLES_PER_EPOCH_FOR_TRAIN /
+        #                          args.bs)
+        # decay_steps = int(num_batches_per_epoch * model_params.NUM_EPOCHS_PER_DECAY)
+
+        # Decay the learning rate exponentially based on the number of steps.
+        # lr = tf.train.exponential_decay(args.lr,
+        #                                 global_step,
+        #                                 decay_steps,
+        #                                 model_params.LEARNING_RATE_DECAY_FACTOR,
+        #                                 staircase=True)
+
+        lr = 0.0001
+
+        # Create an optimizer that performs gradient descent.
+        opt = optimizer(lr)[Optimizer_Name]
+
+        # Calculate the gradients for each model tower.
+        tower_grads = []
+        for i in range(Num_GPUs):
+            with tf.device('/gpu:%d' % i):
+                with tf.name_scope('%s_%d' % (Tower_Name, i)) as scope:
+                    # Calculate the loss for one tower of the cnn model. This function
+                    # constructs the entire cnn model but shares the variables across
+                    # all towers.
+                    #          loss, logits, labels, images, observed, indexes, copy_numbers = tower_loss(scope)
+
+                    # Reuse variables for the next tower.
+                    # tf.get_variable_scope().reuse_variables()
+                    with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
+                        loss, logits, labels, images = tower_loss(scope)
+
+                        # Retain the summaries from the final tower.
+                        # summaries = tf.get_collection(tf.GraphKeys.SUMMARIES, scope)
+
+                        # Calculate the gradients for the batch of data on this cnn tower.
+                        grads = opt.compute_gradients(loss)
+
+                        # Keep track of the gradients across all towers.
+                        tower_grads.append(grads)
+
+        # We must calculate the mean of each gradient. Note that this is the
+        # synchronization point across all towers.
+        grads = average_gradients(tower_grads)
+
+        # Add a summary to track the learning rate.
+        # summaries.append(tf.summary.scalar('learning_rate', lr))
+
+        # Add histograms for gradients.
+        # for grad, var in grads:
+        #     if grad is not None:
+        #         summaries.append(
+        #             tf.summary.histogram(var.op.name + '/gradients', grad))
+
+        # Apply the gradients to adjust the shared variables.
+        apply_gradient_op = opt.apply_gradients(grads, global_step=global_step)
+
+        # Add histograms for trainable variables.
+        # for var in tf.trainable_variables():
+        #     summaries.append(tf.summary.histogram(var.op.name, var))
+
+        # Track the moving averages of all trainable variables.
+        variable_averages = tf.train.ExponentialMovingAverage(
+            Moving_Average_Decay, global_step)
+        variables_averages_op = variable_averages.apply(tf.trainable_variables())
+
+        # Group all updates to into a single train op.
+        train_op = tf.group(apply_gradient_op, variables_averages_op)
+
+        # Create a saver.
+        # saver = tf.train.Saver(tf.global_variables(), max_to_keep=Num_of_Model_Averaging)
+
+        # Build the summary operation from the last tower summaries.
+        # summary_op = tf.summary.merge(summaries)
+
+        # Build an initialization operation to run below.
+        init = tf.global_variables_initializer()
+
+        # Start running operations on the Graph. allow_soft_placement must be set to
+        # True to build towers on GPU, as some of the ops do not have GPU
+        # implementations.
+        sess = tf.Session(config=tf.ConfigProto(
+            allow_soft_placement=True,
+            log_device_placement=False))
+        sess.run(init)
+
+        # Start the queue runners.
+        tf.train.start_queue_runners(sess=sess)
+
+        # summary_writer = tf.summary.FileWriter(args.t,
+        #                                        graph=sess.graph)
+        epoch = 0
+        epoch_loss_value = 0
+        batch_num = 0
+        precision = 5
+
+        # all_features.to_csv(os.path.join(args.r, execution_time + '_all_features.csv'), sep='\t')
+        for step in range(1, Max_Steps + 1):
+            # if epoch == args.me:
+            #     shutil.rmtree(args.d, ignore_errors=True)
+            #     break
+
+            #      if step != 0:
+            start_time = time.time()
+            _, loss_value, logits_value, labels_value, images_value = sess.run([train_op, loss, logits, labels, images])
+            duration = time.time() - start_time
+            #      batch_num = batch_num + 1
+
+            #      if step % 1 == 0:
+            num_examples_per_step = Batch_Size * Num_GPUs
+            examples_per_sec = num_examples_per_step / duration
+            sec_per_batch = duration / Num_GPUs
+            batch_num = batch_num + 1
+            print('\nTraining epoch: %s' % (epoch + 1))
+            print('Batch number: %s' % batch_num)
+            format_str = ('%s: step %d, Train Log_Likelihood = %.4f (%.1f HPFs/sec; %.3f '
+                          'sec/batch)')
+            print(format_str % (datetime.now(), step, loss_value, examples_per_sec, sec_per_batch))
+
+            assert not np.isnan(loss_value), 'Model diverged with loss = NaN'
+
+            epoch_loss_value = epoch_loss_value + loss_value * args.bs
+            if step % num_steps_per_train_epoch == 0:
+                epoch_loss_value = epoch_loss_value / (num_steps_per_train_epoch * args.bs)
+                model_tools.nptxt(epoch_loss_value, precision,
+                                  os.path.join(args.r, execution_time + '_training_loss.txt'))
+                epoch_loss_value = 0
+                batch_num = 0
+                #      epoch_loss_value = epoch_loss_value + loss_value*args.bs
+
+                #      if step % int(NUM_EXAMPLES_PER_EPOCH_FOR_TRAIN/args.bs) == 0:
+                #          if epoch == args.me:
+                #              shutil.rmtree(args.d, ignore_errors=True)
+                #              break
+                epoch = epoch + 1
+
+            #      if step % 1 == 0:
+            #        num_examples_per_step = args.bs * FLAGS.num_gpus
+            #        examples_per_sec = num_examples_per_step / duration
+            #        sec_per_batch = duration / FLAGS.num_gpus
+            #        batch_num = batch_num + 1
+            #        print('\nTraining epoch: %s'%(epoch+1))
+            #        print('Batch number: %s'%batch_num)
+            #        format_str = ('%s: step %d, Train Log_Likelihood = %.4f (%.1f HPFs/sec; %.3f '
+            #                      'sec/batch)')
+            #        print(format_str % (datetime.now(), step, loss_value, examples_per_sec, sec_per_batch))
+
+            #      if (step+1) % (model_params.saving_freq*num_steps_per_train_epoch) == 0 or (step + 1) == max_steps:
+            # if step % (model_params.saving_freq * num_steps_per_train_epoch) == 0 or step == max_steps:
+            #     summary_str = sess.run(summary_op)
+            #     summary_writer.add_summary(summary_str, step)
+
+            # Save the model checkpoint periodically.
+            #      if (step+1) % (model_params.saving_freq*num_steps_per_train_epoch) == 0 or (step + 1) == max_steps:
+            if step % (model_params.saving_freq * num_steps_per_train_epoch) == 0 or step == max_steps:
+                if epoch > (args.me - args.nm):
+                    checkpoint_path = os.path.join(args.t, 'model.ckpt')
+                    saver.save(sess, checkpoint_path, global_step=step)
 
