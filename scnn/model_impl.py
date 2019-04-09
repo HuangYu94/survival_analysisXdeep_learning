@@ -16,6 +16,9 @@ Num_of_Model_Averaging = 5  # number of models to be averaged at test time
 Max_Steps = 100  # max number of batches
 Max_Num_Epoch = 100  # max number of epoch to run
 
+# define global parameters but are not model parameters
+num_steps_per_train_epoch = 10
+num_batches = 10
 
 def initializer(stddev):
     initializer = {
@@ -74,7 +77,7 @@ def _variable_with_weight_decay(name, shape, stddev, wd, initializer_w='variance
 
 
 
-def distorted_inputs(tfrecord_iterator, crop_size=256):
+def distorted_inputs(tfrecord_iterator, batch_size=64, crop_size=256):
     """
     Making disttorted input images for training, image in shape (batch_size,
     :param tfrecord_iterator:
@@ -85,16 +88,16 @@ def distorted_inputs(tfrecord_iterator, crop_size=256):
 
     survival_months, censored, patient_ID, histology_image = tfrecord_iterator.get_next()
     histology_image = tf.cast(histology_image, tf.float32)
-    img_hei, img_wid, img_channel = histology_image.shape
+    img_hei, img_wid, img_channel = histology_image.shape[1], histology_image.shape[2], histology_image.shape[3]
 
     height = crop_size
     width = crop_size
 
     # Image processing for training the network. Note the many random
     # distortions applied to the image.
-    histology_image_unstacked = tf.unstack(histology_image) # random operation can only be applied to 1 image
     histology_image_ditorted_lst = []
-    for histology_image_tmp in histology_image_unstacked:
+    for case_idx in range(0, batch_size):
+        histology_image_tmp = histology_image[case_idx]
         # Randomly crop a [height, width] section of the image.
         histology_image_ditorted = tf.random_crop(histology_image_tmp, [height, width, img_channel])
 
@@ -378,7 +381,7 @@ def inference(images, keep_prob, batch_size, img_channel = 3):
     return softmax_linear
 
 
-def calc_at_risk(histology_image, survival_months, censored):
+def calc_at_risk(histology_image, survival_months, censored, batch_size=32):
     """
     Helper function to ease the construction of loss function in Cox Partial likelihood
     :param histology_image: tf.Tensor in shape [batch_size, hei, wid, channel] contains histological image
@@ -390,7 +393,6 @@ def calc_at_risk(histology_image, survival_months, censored):
     labels: dictionary contains ordered index('at_risk'), ordered survival months('survival'), patients whose deaths
     observed('observed') all in shape [batch_size]
     """
-    batch_size = survival_months.shape[0]
     values, order = tf.nn.top_k(survival_months, batch_size, sorted=True)
     values = tf.reverse(values, axis=[0])
     order = tf.reverse(order, axis=[0])
@@ -429,15 +431,15 @@ def loss(logits, labels):
     return tf.add_n(tf.get_collection('losses'), name='total_loss')
 
 
-def tower_loss(scope, tfrecord_iterator):
+def tower_loss(scope, tfrecord_iterator, batch_size=64):
     """
     function to compute total loss given data set
     :param scope: naming scope to get all losses
     :param tfrecord_iterator: tfrecord iterator to get all data and labels by calling .next()
     :return:
     """
-    survival_months, censored, patient_ID, histology_image_ditorted = distorted_inputs(tfrecord_iterator)
-    images, labels = calc_at_risk(histology_image_ditorted, survival_months, censored)
+    survival_months, censored, patient_ID, histology_image_ditorted = distorted_inputs(tfrecord_iterator, batch_size)
+    images, labels = calc_at_risk(histology_image_ditorted, survival_months, censored, batch_size)
     # if args.m == 'image_genome':
     #     labels['genomics'] = tf.cast(labels['genomics'], tf.float32)
 
@@ -623,20 +625,20 @@ def train():
 
             assert not np.isnan(loss_value), 'Model diverged with loss = NaN'
 
-            epoch_loss_value = epoch_loss_value + loss_value * args.bs
-            if step % num_steps_per_train_epoch == 0:
-                epoch_loss_value = epoch_loss_value / (num_steps_per_train_epoch * args.bs)
-                model_tools.nptxt(epoch_loss_value, precision,
-                                  os.path.join(args.r, execution_time + '_training_loss.txt'))
-                epoch_loss_value = 0
-                batch_num = 0
-                #      epoch_loss_value = epoch_loss_value + loss_value*args.bs
-
-                #      if step % int(NUM_EXAMPLES_PER_EPOCH_FOR_TRAIN/args.bs) == 0:
-                #          if epoch == args.me:
-                #              shutil.rmtree(args.d, ignore_errors=True)
-                #              break
-                epoch = epoch + 1
+            epoch_loss_value = epoch_loss_value + loss_value * Batch_Size
+            # if step % num_steps_per_train_epoch == 0:
+            #     epoch_loss_value = epoch_loss_value / (num_steps_per_train_epoch * Batch_Size)
+            #     model_tools.nptxt(epoch_loss_value, precision,
+            #                       os.path.join(args.r, execution_time + '_training_loss.txt'))
+            #     epoch_loss_value = 0
+            #     batch_num = 0
+            #     #      epoch_loss_value = epoch_loss_value + loss_value*args.bs
+            #
+            #     #      if step % int(NUM_EXAMPLES_PER_EPOCH_FOR_TRAIN/args.bs) == 0:
+            #     #          if epoch == args.me:
+            #     #              shutil.rmtree(args.d, ignore_errors=True)
+            #     #              break
+            #     epoch = epoch + 1
 
             #      if step % 1 == 0:
             #        num_examples_per_step = args.bs * FLAGS.num_gpus
@@ -656,8 +658,8 @@ def train():
 
             # Save the model checkpoint periodically.
             #      if (step+1) % (model_params.saving_freq*num_steps_per_train_epoch) == 0 or (step + 1) == max_steps:
-            if step % (model_params.saving_freq * num_steps_per_train_epoch) == 0 or step == max_steps:
-                if epoch > (args.me - args.nm):
-                    checkpoint_path = os.path.join(args.t, 'model.ckpt')
-                    saver.save(sess, checkpoint_path, global_step=step)
+            # if step % (model_params.saving_freq * num_steps_per_train_epoch) == 0 or step == max_steps:
+            #     if epoch > (args.me - args.nm):
+            #         checkpoint_path = os.path.join(args.t, 'model.ckpt')
+            #         saver.save(sess, checkpoint_path, global_step=step)
 
