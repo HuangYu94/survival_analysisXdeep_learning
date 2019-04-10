@@ -29,7 +29,7 @@ def CreateTFRecords(img_file_list, out_file_name, csv_features):
     TFRecords file on disk.
     :param img_file_list: input file directories list containing directory strings
     :param out_file_name: output file name
-    :param csv_features: pandas dataframe containing other information(patient ID, survival info, cencering status,
+    :param csv_features: pandas dataframe containing other information(patient ID, survival info, censoring status,
     genomic features etc...)
     :return: None
     """
@@ -89,6 +89,7 @@ def CreateTFRecords(img_file_list, out_file_name, csv_features):
             serialized_feature = serialize_example(survival_months[i], censored[i], patient_ID[i].encode('utf8'),
                                                    histology_image[i].tobytes())
             writer.write(serialized_feature)
+
 
 def DecodeTFRecords(records_file_name_queue, batch_size = 64, img_hei = 1024, img_wid = 1024, img_channel = 3):
     """
@@ -160,8 +161,6 @@ tfrecord_iterator = DecodeTFRecords(out_flie_name, batch_size)
 #             print(patient_ID)
 #             plt.imshow(histology_image[1, :, :, :])
 #             plt.show()
-
-
 
 with tf.device('/cpu:0'):
     # tf.set_random_seed(model_params.seed)

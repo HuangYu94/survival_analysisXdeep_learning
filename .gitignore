@@ -114,7 +114,7 @@ train_results/
 *.tfrecords
 *.jpg
 *.png
-
+*2server.py
 # files not created by me
 inputs/
 model_input.py
