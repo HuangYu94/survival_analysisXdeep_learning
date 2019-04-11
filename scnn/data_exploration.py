@@ -5,8 +5,7 @@ from datetime import datetime
 import numpy as np
 import pandas as pd
 import tensorflow as tf
-import matplotlib.pyplot as plt
-import cv2
+
 from PIL import Image
 
 

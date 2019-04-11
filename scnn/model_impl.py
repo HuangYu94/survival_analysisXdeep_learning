@@ -14,7 +14,7 @@ Moving_Average_Decay = 0.9999
 Learing_Rate_Decay_Factor = 0.1
 Num_of_Model_Averaging = 5  # number of models to be averaged at test time
 Max_Steps = 100  # max number of batches
-Max_Num_Epoch = 100  # max number of epoch to run
+Max_Num_Epoch = 5  # max number of epoch to run
 
 # define global parameters but are not model parameters
 num_steps_per_train_epoch = 10
