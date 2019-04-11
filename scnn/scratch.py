@@ -15,31 +15,41 @@
 #     plt.imshow(sess.run(new_image))
 #     plt.show()
 
-def shatter_img_list(img_list, out_file_list):
-    """
-    function to shatter img_list into list of lists.
-    :param img_list: input list containing all image names for training or testing
-    :param out_file_list: output file list of .tfrecords files
-    :return: shattered_img_list: list of lists of filenames
-    :return: out_file_list: append another one if there is more images left
-    """
-    shattered_img_list = []
-    grb_idx = 0
-    num_cases = len(img_list) // len(out_file_list)
-    while True:
-        if grb_idx + num_cases >= len(img_list):
-            shattered_img_list.append(img_list[grb_idx:])
-            break
-        else:
-            shattered_img_list.append(img_list[grb_idx:grb_idx + num_cases])
-            grb_idx += num_cases
-        print(grb_idx)
-    if len(shattered_img_list) > len(out_file_list):
-        out_file_list.append(out_file_list[-1] + 'rest')
-    return shattered_img_list, out_file_list
+import os
 
-img_list = ['img1', 'img2', 'img3', 'img4', 'img5']
-out_list = ['out1', 'out2']
 
-print(shatter_img_list(img_list, out_list))
-print([(name + '.tfrecord') for name in img_list])
+def LogDataAsText(data, precision, dirname, fname):
+    """
+    function to log data(like losses) created during training as text file
+    :param data: data to be logged could be string number etc.
+    :param precision: precision for float
+    :param dirname: log directory name
+    :param fname: log file name
+    :return: None
+    """
+    import numpy as np
+    import os
+
+    if not os.path.exists(dirname):
+        os.mkdir(dirname)
+    with open(os.path.join(dirname, fname), 'a') as f:
+        if type(data) == type('string'):
+            np.savetxt(f, np.array([data]), fmt='%s')
+        elif type(data) == type(np.array(['string'])):
+            np.savetxt(f, data, fmt='%s')
+        elif type(data) == type(1) or type(data) == type(1.0) or type(data) == type(np.float32(1)) or type(
+                data) == type(np.float64(1)) or type(data) == type(np.float(1)):
+            np.savetxt(f, np.array([data]), fmt='%.' + '%d' % precision + 'f')
+        elif type(data) == type(np.array([1])) or type(data) == type(np.array([1.0])):
+            np.savetxt(f, data, fmt='%.' + '%d' % precision + 'f')
+        f.close()
+
+
+precision = 5
+data = 1.2333
+dirname = os.path.join(os.path.dirname(__file__), 'train_log')
+fname = 'epoch_loss.txt'
+LogDataAsText(data, precision, dirname, fname)
+data1 = 0.9999
+LogDataAsText(data1, precision, dirname, fname)
+

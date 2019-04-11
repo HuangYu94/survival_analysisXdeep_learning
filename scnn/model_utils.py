@@ -132,72 +132,99 @@ def DecodeTFRecords(records_file_name_queue, batch_size = 64, img_hei = 1024, im
     tfrecord_iterator = dataset.make_initializable_iterator()
     return tfrecord_iterator
 
+def LogDataAsText(data, precision, dirname, fname):
+    """
+    function to log data(like losses) created during training as text file
+    :param data: data to be logged could be string number etc.
+    :param precision: precision for float
+    :param dirname: log directory name
+    :param fname: log file name
+    :return: None
+    """
+    import numpy as np
+    import os
 
-num_batches = model.num_batches
-batch_size = model.Batch_Size
-
-all_data_csv_path = os.path.join(os.path.dirname(__file__), 'inputs', 'all_dataset.csv')
-all_train_images_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'images', 'train')
-all_df = pd.read_csv(all_data_csv_path)
-train_image_list = os.listdir(all_train_images_path)
-# sess = tf.InteractiveSession()
-first_image_path = os.path.join(all_train_images_path, train_image_list[0])
-# print(first_image_path)
-# one_image = tf.image.decode_image(tf.read_file(first_image_path))
-# print(one_image.eval().shape)
-
-# one_image = Image.open(first_image_path)
-# one_image = NormalizeRGB(one_image)
-#
-# fig = plt.figure()
-# ax = fig.add_subplot(111)
-# ax.imshow(one_image[:, :, 0:3])
-# plt.show()
-
-ReCreate_Record = False
-num_records_split = 5
-out_file_names = [('train_image_record_file' + str(i)) for i in range(0, num_records_split)]
-tfrecords_file_name = [os.path.join(os.path.dirname(__file__), out_file_name) for out_file_name in out_file_names]
-
-some_train_img_list = []
-for img_str in train_image_list:
-    some_train_img_list.append(os.path.join(all_train_images_path, img_str))
-
-# for out_file_name in out_file_names:
-#     tfrecords_file_name = os.path.join(os.path.dirname(__file__), out_file_name)
+    if not os.path.exists(dirname):
+        os.mkdir(dirname)
+    with open(os.path.join(dirname, fname), 'a') as f:
+        if type(data) == type('string'):
+            np.savetxt(f, np.array([data]), fmt='%s')
+        elif type(data) == type(np.array(['string'])):
+            np.savetxt(f, data, fmt='%s')
+        elif type(data) == type(1) or type(data) == type(1.0) or type(data) == type(np.float32(1)) or type(
+                data) == type(np.float64(1)) or type(data) == type(np.float(1)):
+            np.savetxt(f, np.array([data]), fmt='%.' + '%d' % precision + 'f')
+        elif type(data) == type(np.array([1])) or type(data) == type(np.array([1.0])):
+            np.savetxt(f, data, fmt='%.' + '%d' % precision + 'f')
+        f.close()
 
 
-if ReCreate_Record:
-    CreateTFRecords(some_train_img_list, out_file_names, all_df)
+def Test_Utils():
+    num_batches = model.num_batches
+    batch_size = model.Batch_Size
 
-filename_queue = tf.train.string_input_producer(out_file_names)
-tfrecord_iterator = DecodeTFRecords(out_file_names, batch_size)
+    all_data_csv_path = os.path.join(os.path.dirname(__file__), 'inputs', 'all_dataset.csv')
+    all_train_images_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'images', 'train')
+    all_df = pd.read_csv(all_data_csv_path)
+    train_image_list = os.listdir(all_train_images_path)
+    # sess = tf.InteractiveSession()
+    first_image_path = os.path.join(all_train_images_path, train_image_list[0])
+    # print(first_image_path)
+    # one_image = tf.image.decode_image(tf.read_file(first_image_path))
+    # print(one_image.eval().shape)
 
-init_op = tf.group(tf.global_variables_initializer(),
-                   tf.local_variables_initializer())
+    # one_image = Image.open(first_image_path)
+    # one_image = NormalizeRGB(one_image)
+    #
+    # fig = plt.figure()
+    # ax = fig.add_subplot(111)
+    # ax.imshow(one_image[:, :, 0:3])
+    # plt.show()
 
-with tf.Session() as sess:
-    sess.run(init_op)
-    coord = tf.train.Coordinator()
-    threads = tf.train.start_queue_runners(coord=coord)
-    for i in range(0, model.Max_Num_Epoch):
-        sess.run(tfrecord_iterator.initializer)
-        print("current i is %d and initilizer called"%(i))
-        survival_months, censored, patient_ID, histology_image = sess.run(tfrecord_iterator.get_next())
-        if i == 3:
-            print(survival_months)
-            print(censored)
-            print(patient_ID)
-            plt.imshow(histology_image[1, :, :, :])
-            plt.show()
-    coord.request_stop()
-            # raise ValueError("STOP HERE!")
-        # while True:
-        #     try:
-        #         survival_months, censored, patient_ID, histology_image = sess.run(tfrecord_iterator.get_next())
-        #         print("current i is %d and initilizer called" % (i))
+    ReCreate_Record = False
+    num_records_split = 5
+    out_file_names = [('train_image_record_file' + str(i)) for i in range(0, num_records_split)]
+    tfrecords_file_name = [os.path.join(os.path.dirname(__file__), out_file_name) for out_file_name in out_file_names]
 
-        #     except:
-        #         break
+    some_train_img_list = []
+    for img_str in train_image_list:
+        some_train_img_list.append(os.path.join(all_train_images_path, img_str))
+
+    # for out_file_name in out_file_names:
+    #     tfrecords_file_name = os.path.join(os.path.dirname(__file__), out_file_name)
+
+
+    if ReCreate_Record:
+        CreateTFRecords(some_train_img_list, out_file_names, all_df)
+
+    filename_queue = tf.train.string_input_producer(out_file_names)
+    tfrecord_iterator = DecodeTFRecords(out_file_names, batch_size)
+
+    init_op = tf.group(tf.global_variables_initializer(),
+                       tf.local_variables_initializer())
+
+    with tf.Session() as sess:
+        sess.run(init_op)
+        coord = tf.train.Coordinator()
+        threads = tf.train.start_queue_runners(coord=coord)
+        for i in range(0, model.Max_Num_Epoch):
+            sess.run(tfrecord_iterator.initializer)
+            print("current i is %d and initilizer called"%(i))
+            survival_months, censored, patient_ID, histology_image = sess.run(tfrecord_iterator.get_next())
+            if i == 3:
+                print(survival_months)
+                print(censored)
+                print(patient_ID)
+                plt.imshow(histology_image[1, :, :, :])
+                plt.show()
+        coord.request_stop()
+                # raise ValueError("STOP HERE!")
+            # while True:
+            #     try:
+            #         survival_months, censored, patient_ID, histology_image = sess.run(tfrecord_iterator.get_next())
+            #         print("current i is %d and initilizer called" % (i))
+
+            #     except:
+            #         break
 
 

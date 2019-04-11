@@ -156,9 +156,6 @@ with tf.device('/cpu:0'):
 
     # summary_writer = tf.summary.FileWriter(args.t,
     #                                        graph=sess.graph)
-    epoch_loss_value = 0
-    batch_num = 0
-    precision = 5
 
     # all_features.to_csv(os.path.join(args.r, execution_time + '_all_features.csv'), sep='\t')
     for epoch in range(1, model.Max_Num_Epoch + 1):
@@ -169,6 +166,9 @@ with tf.device('/cpu:0'):
         #      if step != 0:
         sess.run(tfrecord_iterator.initializer)
         step = 0
+        epoch_loss_value = 0
+        batch_num = 0
+        precision = 5
         while True:
             start_time = time.time()
             try:
@@ -192,5 +192,6 @@ with tf.device('/cpu:0'):
             assert not np.isnan(loss_value), 'Model diverged with loss = NaN'
             step += 1
             epoch_loss_value = epoch_loss_value + loss_value * batch_size
+            utils.LogDataAsText(epoch_loss_value, precision, model.train_log_folder, model.epoch_loss_fname)
 
 

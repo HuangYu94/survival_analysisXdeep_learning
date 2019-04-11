@@ -21,6 +21,9 @@ Max_Num_Epoch = 100  # max number of epoch to run
 # define global parameters but are not model parameters
 num_steps_per_train_epoch = 10
 num_batches = 10
+train_log_folder = 'train_log'
+epoch_loss_fname = 'epoch_loss.txt'
+test_log_folder = 'test_log'
 
 def initializer(stddev):
     initializer = {
