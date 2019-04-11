@@ -111,6 +111,7 @@ images/
 checkpoints/
 tmp/
 train_results/
+*_log/
 *.tfrecords
 *.jpg
 *.png
