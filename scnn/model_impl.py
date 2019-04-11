@@ -5,7 +5,7 @@ import datetime
 
 # define model parameters in the following:
 num_output_units = 1
-Keep_Prob = 0.5
+Keep_Prob = 0.95
 Batch_Size = 32
 Optimizer_Name = 'gd'
 Num_GPUs = 1
@@ -16,7 +16,7 @@ Learning_Rate = 0.001
 Num_of_Model_Averaging = 1  # number of models to be averaged at test time
 Num_of_Epochs_Per_Decay = 1500
 Max_Steps = 100  # max number of batches
-Max_Num_Epoch = 2  # max number of epoch to run
+Max_Num_Epoch = 100  # max number of epoch to run
 
 # define global parameters but are not model parameters
 num_steps_per_train_epoch = 10

@@ -190,7 +190,7 @@ with tf.device('/cpu:0'):
             assert not np.isnan(loss_value), 'Model diverged with loss = NaN'
             step += 1
             epoch_loss_value = epoch_loss_value + loss_value * batch_size
-            utils.LogDataAsText(epoch_loss_value, precision, model.train_log_folder, model.epoch_loss_fname)
+        utils.LogDataAsText(epoch_loss_value, precision, model.train_log_folder, model.epoch_loss_fname)
         if epoch > (model.Max_Num_Epoch - model.Num_of_Model_Averaging):
             # save last Num_of_Model_Averaging models for testing
             train_ckpt_folder = os.path.join(os.path.dirname(__file__), model.train_ckpt_folder)
