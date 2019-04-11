@@ -41,7 +41,7 @@ for img_str in train_image_list:
 if ReCreate_Record:
     utils.CreateTFRecords(some_train_img_list, out_file_names, all_df)
 
-filename_queue = tf.train.string_input_producer(out_file_names, num_epochs=3)
+
 tfrecord_iterator = utils.DecodeTFRecords(out_file_names, batch_size)
 
 # init_op = tf.group(tf.global_variables_initializer(),
@@ -176,9 +176,7 @@ with tf.device('/cpu:0'):
             except tf.errors.OutOfRangeError:
                 break
             duration = time.time() - start_time
-            #      batch_num = batch_num + 1
 
-            #      if step % 1 == 0:
             num_examples_per_step = model.Batch_Size * model.Num_GPUs
             examples_per_sec = num_examples_per_step / duration
             sec_per_batch = duration / model.Num_GPUs
@@ -193,5 +191,14 @@ with tf.device('/cpu:0'):
             step += 1
             epoch_loss_value = epoch_loss_value + loss_value * batch_size
             utils.LogDataAsText(epoch_loss_value, precision, model.train_log_folder, model.epoch_loss_fname)
+        if epoch > (model.Max_Num_Epoch - model.Num_of_Model_Averaging):
+            # save last Num_of_Model_Averaging models for testing
+            train_ckpt_folder = os.path.join(os.path.dirname(__file__), model.train_ckpt_folder)
+            if not os.path.exists(train_ckpt_folder):
+                os.mkdir(train_ckpt_folder)
+            ckpt_path = os.path.join(train_ckpt_folder, 'model.ckpt')
+            saver.save(sess, ckpt_path, global_step=epoch)
+
+
 
 

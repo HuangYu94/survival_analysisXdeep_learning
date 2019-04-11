@@ -128,7 +128,7 @@ def DecodeTFRecords(records_file_name_queue, batch_size = 64, img_hei = 1024, im
         return example['survival months'], example['censored'], example['patient ID'], histo_image
     dataset = tf.data.TFRecordDataset(records_file_name_queue)
     dataset = dataset.map(_parse_, num_parallel_calls=batch_size).batch(batch_size, drop_remainder=True)
-    dataset = dataset.shuffle(buffer_size=100, reshuffle_each_iteration=True).repeat()
+    dataset = dataset.shuffle(buffer_size=100, reshuffle_each_iteration=True)
     tfrecord_iterator = dataset.make_initializable_iterator()
     return tfrecord_iterator
 
@@ -197,8 +197,8 @@ def Test_Utils():
     if ReCreate_Record:
         CreateTFRecords(some_train_img_list, out_file_names, all_df)
 
-    filename_queue = tf.train.string_input_producer(out_file_names)
-    tfrecord_iterator = DecodeTFRecords(out_file_names, batch_size)
+    # filename_queue = tf.train.string_input_producer(tfrecords_file_name)
+    tfrecord_iterator = DecodeTFRecords(tfrecords_file_name, batch_size)
 
     init_op = tf.group(tf.global_variables_initializer(),
                        tf.local_variables_initializer())
@@ -210,13 +210,19 @@ def Test_Utils():
         for i in range(0, model.Max_Num_Epoch):
             sess.run(tfrecord_iterator.initializer)
             print("current i is %d and initilizer called"%(i))
-            survival_months, censored, patient_ID, histology_image = sess.run(tfrecord_iterator.get_next())
-            if i == 3:
-                print(survival_months)
-                print(censored)
-                print(patient_ID)
-                plt.imshow(histology_image[1, :, :, :])
-                plt.show()
+            while True:
+                try:
+                    survival_months, censored, patient_ID, histology_image = sess.run(tfrecord_iterator.get_next())
+                    print("Iterator getnext() called!")
+                except tf.errors.OutOfRangeError:
+                    break
+
+                if i == 1:
+                    print(survival_months)
+                    print(censored)
+                    print(patient_ID)
+                    plt.imshow(histology_image[1, :, :, :])
+                    plt.show()
         coord.request_stop()
                 # raise ValueError("STOP HERE!")
             # while True:
