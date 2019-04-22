@@ -15,41 +15,14 @@
 #     plt.imshow(sess.run(new_image))
 #     plt.show()
 
-import os
+import numpy as np
 
+arr = np.genfromtxt('patient_id.txt',dtype='str')
+test_set = set()
+for sub_arr in arr:
+    for id in sub_arr:
+        test_set.add(id)
 
-def LogDataAsText(data, precision, dirname, fname):
-    """
-    function to log data(like losses) created during training as text file
-    :param data: data to be logged could be string number etc.
-    :param precision: precision for float
-    :param dirname: log directory name
-    :param fname: log file name
-    :return: None
-    """
-    import numpy as np
-    import os
+print(len(test_set))
 
-    if not os.path.exists(dirname):
-        os.mkdir(dirname)
-    with open(os.path.join(dirname, fname), 'a') as f:
-        if type(data) == type('string'):
-            np.savetxt(f, np.array([data]), fmt='%s')
-        elif type(data) == type(np.array(['string'])):
-            np.savetxt(f, data, fmt='%s')
-        elif type(data) == type(1) or type(data) == type(1.0) or type(data) == type(np.float32(1)) or type(
-                data) == type(np.float64(1)) or type(data) == type(np.float(1)):
-            np.savetxt(f, np.array([data]), fmt='%.' + '%d' % precision + 'f')
-        elif type(data) == type(np.array([1])) or type(data) == type(np.array([1.0])):
-            np.savetxt(f, data, fmt='%.' + '%d' % precision + 'f')
-        f.close()
-
-
-precision = 5
-data = 1.2333
-dirname = os.path.join(os.path.dirname(__file__), 'train_log')
-fname = 'epoch_loss.txt'
-LogDataAsText(data, precision, dirname, fname)
-data1 = 0.9999
-LogDataAsText(data1, precision, dirname, fname)
 

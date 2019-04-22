@@ -22,6 +22,32 @@ def NormalizeRGB(img_in):
         img_out[:, :, i] = (img_float[:, :, i] - np.min(img_float[:, :, i])) / np.max(img_float[:, :, i])
     return img_out
 
+def get_imgID(img_path_name):
+    img_id_start = img_path_name.find('TCGA')
+    return img_path_name[img_id_start:img_id_start+12]
+
+def shatter_img_list(img_list, out_file_list):
+    """
+    function to shatter img_list into list of lists.
+    :param img_list: input list containing all image names for training or testing
+    :param out_file_list: output file list of .tfrecords files
+    :return: shattered_img_list: list of lists of filenames
+    :return: out_file_list: append another one if there is more images left
+    """
+    shattered_img_list = []
+    grb_idx = 0
+    num_cases = len(img_list) // len(out_file_list)
+    while True:
+        if grb_idx + num_cases >= len(img_list):
+            shattered_img_list.append(img_list[grb_idx:])
+            break
+        else:
+            shattered_img_list.append(img_list[grb_idx:grb_idx + num_cases])
+            grb_idx += num_cases
+    if len(shattered_img_list) > len(out_file_list):
+        out_file_list.append(out_file_list[-1] + 'rest')
+    return shattered_img_list, out_file_list
+
 def CreateTFRecords(img_file_list, out_file_names, csv_features):
     """
     Given image file list, this function grab image files and labels(survival months, censoring status) to create
@@ -68,38 +94,16 @@ def CreateTFRecords(img_file_list, out_file_names, csv_features):
         # Create a Features message using tf.train.Example.
         example_proto = tf.train.Example(features=tf.train.Features(feature=feature))
         return example_proto.SerializeToString()
-    def _get_imgID(img_path_name):
-        img_id_start = img_path_name.find('TCGA')
-        return img_path_name[img_id_start:img_id_start+12]
 
-    def shatter_img_list(img_list, out_file_list):
-        """
-        function to shatter img_list into list of lists.
-        :param img_list: input list containing all image names for training or testing
-        :param out_file_list: output file list of .tfrecords files
-        :return: shattered_img_list: list of lists of filenames
-        :return: out_file_list: append another one if there is more images left
-        """
-        shattered_img_list = []
-        grb_idx = 0
-        num_cases = len(img_list) // len(out_file_list)
-        while True:
-            if grb_idx + num_cases >= len(img_list):
-                shattered_img_list.append(img_list[grb_idx:])
-                break
-            else:
-                shattered_img_list.append(img_list[grb_idx:grb_idx + num_cases])
-                grb_idx += num_cases
-        if len(shattered_img_list) > len(out_file_list):
-            out_file_list.append(out_file_list[-1] + 'rest')
-        return shattered_img_list, out_file_list
 
     img_file_lists, out_file_names = shatter_img_list(img_file_list, out_file_names)
+    id_set = set()
     for img_file_idx, img_file_list in enumerate(img_file_lists):
         out_file_name = out_file_names[img_file_idx]
         with tf.python_io.TFRecordWriter(out_file_name + '.tfrecords') as writer:
             for img_name_path in img_file_list:
-                patient_id = _get_imgID(img_name_path)
+                patient_id = get_imgID(img_name_path)
+                id_set.add(patient_id)
                 histology_image = _get_rgb(img_name_path)
                 # print(patient_id)
                 # print(csv_features[csv_features['TCGA ID'] == patient_id]['Survival months'].as_matrix())
@@ -110,13 +114,16 @@ def CreateTFRecords(img_file_list, out_file_names, csv_features):
                 writer.write(serialized_feature)
 
 
+
 def DecodeTFRecords(records_file_name_queue, batch_size = 64, img_hei = 1024, img_wid = 1024, img_channel = 3):
     """
     function to read and decode TFRecords file name queue
     :param records_file_name_queue: TFRecords file name queue
     :return: tfrecord_iterator: stores all data as a tfrecord_iterator
     """
-    records_file_name_queue = [(name + '.tfrecords') for name in records_file_name_queue]
+    records_file_name_queue =tf.train.string_input_producer([(name + '.tfrecords') for name in records_file_name_queue])
+    reader = tf.TFRecordReader()
+    _, serialized_example = reader.read(records_file_name_queue)
     def _parse_(serialized_example):
         feature = {'survival months': tf.FixedLenFeature([], tf.int64),
                    'censored': tf.FixedLenFeature([], tf.int64),
@@ -126,11 +133,22 @@ def DecodeTFRecords(records_file_name_queue, batch_size = 64, img_hei = 1024, im
         histo_image = tf.decode_raw(example['histology image'], tf.uint8)
         histo_image = tf.reshape(histo_image, [img_hei, img_wid, img_channel])
         return example['survival months'], example['censored'], example['patient ID'], histo_image
-    dataset = tf.data.TFRecordDataset(records_file_name_queue)
-    dataset = dataset.map(_parse_, num_parallel_calls=batch_size).batch(batch_size, drop_remainder=True)
-    dataset = dataset.shuffle(buffer_size=100, reshuffle_each_iteration=True)
-    tfrecord_iterator = dataset.make_initializable_iterator()
-    return tfrecord_iterator
+    # dataset = tf.data.TFRecordDataset(records_file_name_queue).shard(5, 4).batch(batch_size, drop_remainder=True)
+    # dataset = dataset.map(_parse_, num_parallel_calls=batch_size).repeat()
+    # dataset = dataset.shuffle(buffer_size=100, reshuffle_each_iteration=True)
+    # tfrecord_iterator = dataset.make_one_shot_iterator()
+    min_after_dequeue = 1000
+    capacity = min_after_dequeue + 3*batch_size
+    parsed_example = _parse_(serialized_example)
+    parsed_example_batch = tf.train.shuffle_batch(parsed_example, batch_size=batch_size, capacity=capacity,
+                                                  min_after_dequeue=min_after_dequeue)
+    ret_batch = {}
+    ret_batch['survival months'], ret_batch['censored'], ret_batch['patient ID'], ret_batch['histology image'] = \
+                                                                                    parsed_example_batch[0],\
+                                                                                   parsed_example_batch[1], \
+                                                                                   parsed_example_batch[2], \
+                                                                                    parsed_example_batch[3]
+    return ret_batch
 
 def LogDataAsText(data, precision, dirname, fname):
     """

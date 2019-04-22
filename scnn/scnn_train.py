@@ -15,6 +15,8 @@ batch_size = model.Batch_Size
 all_data_csv_path = os.path.join(os.path.dirname(__file__), 'inputs', 'all_dataset.csv')
 all_train_images_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'images', 'train')
 all_df = pd.read_csv(all_data_csv_path)
+num_cases, _ = all_df.shape
+num_all_batches = num_cases // batch_size + 1
 train_image_list = os.listdir(all_train_images_path)
 # sess = tf.InteractiveSession()
 first_image_path = os.path.join(all_train_images_path, train_image_list[0])
@@ -41,26 +43,35 @@ for img_str in train_image_list:
 if ReCreate_Record:
     utils.CreateTFRecords(some_train_img_list, out_file_names, all_df)
 
+_, out_file_names = utils.shatter_img_list(some_train_img_list, out_file_names)
+print(out_file_names)
+parsed_example_batch = utils.DecodeTFRecords(out_file_names, batch_size)
 
-tfrecord_iterator = utils.DecodeTFRecords(out_file_names, batch_size)
+init_op = tf.group(tf.global_variables_initializer(),
+                   tf.local_variables_initializer())
 
-# init_op = tf.group(tf.global_variables_initializer(),
-#                    tf.local_variables_initializer())
+# str_list = []
+# train_patient_id = map(utils.get_imgID, train_image_list)
+# str_set = set()
+# id_set = set()
+#
 #
 # with tf.Session() as sess:
 #     sess.run(init_op)
 #     coord = tf.train.Coordinator()
 #     threads = tf.train.start_queue_runners(coord=coord)
-#     for i in range(0, num_batches):
-#         survival_months, censored, patient_ID, histology_image = sess.run(tfrecord_iterator.get_next())
-#         print("current i is %d"%(i))
-#         if i == 3:
-#             print(survival_months)
-#             print(censored)
-#             print(patient_ID)
-#             plt.imshow(histology_image[1, :, :, :])
-#             plt.show()
-
+#     # sess.run(tfrecord_iterator.initializer)
+#
+#     for i in range(0, num_all_batches + 100):
+#         patient_id = sess.run(parsed_example_batch['patient ID'])
+#         for id in patient_id:
+#             id_set.add(id)
+#
+#     coord.request_stop()
+#     coord.join(threads)
+#
+# print(len(id_set))
+# TRAIN FUNCTION STARTED HERE!!
 with tf.device('/cpu:0'):
     # tf.set_random_seed(model_params.seed)
     # Create a variable to count the number of train() calls. This equals the
@@ -95,7 +106,7 @@ with tf.device('/cpu:0'):
 
         # Reuse variables for the next tower.
         with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
-            loss, logits, labels, images = model.tower_loss(scope, tfrecord_iterator, batch_size)
+            loss, logits, labels, images = model.tower_loss(scope, parsed_example_batch, batch_size)
 
             # Retain the summaries from the final tower.
             # summaries = tf.get_collection(tf.GraphKeys.SUMMARIES, scope)
@@ -164,17 +175,15 @@ with tf.device('/cpu:0'):
         #     break
 
         #      if step != 0:
-        sess.run(tfrecord_iterator.initializer)
         step = 0
         epoch_loss_value = 0
         batch_num = 0
         precision = 5
-        while True:
+        for _ in range(0, model.num_steps_per_train_epoch):
             start_time = time.time()
-            try:
-                _, loss_value, logits_value, labels_value, images_value = sess.run([train_op, loss, logits, labels, images])
-            except tf.errors.OutOfRangeError:
-                break
+
+            _, loss_value, logits_value, labels_value, images_value = sess.run([train_op, loss, logits, labels, images])
+
             duration = time.time() - start_time
 
             num_examples_per_step = model.Batch_Size * model.Num_GPUs

@@ -7,7 +7,7 @@ import datetime
 num_output_units = 1
 Num_of_Channels_Image = 3
 Keep_Prob = 0.95
-Batch_Size = 32
+Batch_Size = 16
 Optimizer_Name = 'gd'
 Num_GPUs = 1
 Tower_Name = 'tower'
@@ -21,9 +21,8 @@ Max_Num_Epoch = 100  # max number of epoch to run
 Crop_Size = 256
 
 
-
 # define global parameters but are not model parameters
-num_steps_per_train_epoch = 10
+num_steps_per_train_epoch = 200
 num_batches = 10
 train_log_folder = 'train_log'
 epoch_loss_fname = 'epoch_loss.txt'
@@ -87,16 +86,19 @@ def _variable_with_weight_decay(name, shape, stddev, wd, initializer_w='variance
 
 
 
-def distorted_inputs(tfrecord_iterator, batch_size=64, crop_size=256):
+def distorted_inputs(parsed_example_batch, batch_size=64, crop_size=256):
     """
     Making disttorted input images for training, image in shape (batch_size,
-    :param tfrecord_iterator:
-    can be unpacked as survival_months, censored, patient_ID, histology_image = tfrecord_iterator.get_next()
+    :param parsed_example_batch:
+    dictionary contains ['survival months', 'censored', 'patient ID', 'histology image']
     crop_size: parameter for random_crop(), image will be cropped into (crop_size, crop_size)
     :return: (survival_months, censored, patient_ID, histology_image_distorted)
     """
 
-    survival_months, censored, patient_ID, histology_image = tfrecord_iterator.get_next()
+    survival_months, censored, patient_ID, histology_image = parsed_example_batch['survival months'], \
+                                                             parsed_example_batch['censored'], \
+                                                             parsed_example_batch['patient ID'], \
+                                                             parsed_example_batch['histology image']
     histology_image = tf.cast(histology_image, tf.float32)
     img_hei, img_wid, img_channel = histology_image.shape[1], histology_image.shape[2], histology_image.shape[3]
 
@@ -441,14 +443,14 @@ def loss(logits, labels):
     return tf.add_n(tf.get_collection('losses'), name='total_loss')
 
 
-def tower_loss(scope, tfrecord_iterator, batch_size=64):
+def tower_loss(scope, parsed_example_batch, batch_size=64):
     """
     function to compute total loss given data set
     :param scope: naming scope to get all losses
-    :param tfrecord_iterator: tfrecord iterator to get all data and labels by calling .next()
+    :param parsed_example_batch: parsed exmaples batch from tfrecords files
     :return:
     """
-    survival_months, censored, patient_ID, histology_image_ditorted = distorted_inputs(tfrecord_iterator, batch_size)
+    survival_months, censored, patient_ID, histology_image_ditorted = distorted_inputs(parsed_example_batch, batch_size)
     images, labels = calc_at_risk(histology_image_ditorted, survival_months, censored, batch_size)
     # if args.m == 'image_genome':
     #     labels['genomics'] = tf.cast(labels['genomics'], tf.float32)
