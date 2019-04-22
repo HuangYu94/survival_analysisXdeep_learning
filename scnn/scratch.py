@@ -16,13 +16,10 @@
 #     plt.show()
 
 import numpy as np
-
-arr = np.genfromtxt('patient_id.txt',dtype='str')
-test_set = set()
-for sub_arr in arr:
-    for id in sub_arr:
-        test_set.add(id)
-
-print(len(test_set))
-
+from sklearn import preprocessing
+X_train = np.random.normal(size=(3, 4))
+print(X_train)
+min_max_scaler = preprocessing.MinMaxScaler(feature_range=(-1, 1))
+X_train_scaled = min_max_scaler.fit_transform(X_train)
+print(np.mean(X_train_scaled, axis=1))
 

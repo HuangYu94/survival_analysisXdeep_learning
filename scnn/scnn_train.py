@@ -9,7 +9,7 @@ import tensorflow as tf
 
 
 
-num_batches = model.num_batches
+
 batch_size = model.Batch_Size
 
 all_data_csv_path = os.path.join(os.path.dirname(__file__), 'inputs', 'all_dataset.csv')

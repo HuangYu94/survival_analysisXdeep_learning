@@ -97,13 +97,11 @@ def CreateTFRecords(img_file_list, out_file_names, csv_features):
 
 
     img_file_lists, out_file_names = shatter_img_list(img_file_list, out_file_names)
-    id_set = set()
     for img_file_idx, img_file_list in enumerate(img_file_lists):
         out_file_name = out_file_names[img_file_idx]
         with tf.python_io.TFRecordWriter(out_file_name + '.tfrecords') as writer:
             for img_name_path in img_file_list:
                 patient_id = get_imgID(img_name_path)
-                id_set.add(patient_id)
                 histology_image = _get_rgb(img_name_path)
                 # print(patient_id)
                 # print(csv_features[csv_features['TCGA ID'] == patient_id]['Survival months'].as_matrix())
