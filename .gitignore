@@ -115,9 +115,12 @@ train_results/
 *.tfrecords
 *.jpg
 *.png
+*.txt
 *2server.py
 # files not created by me
 inputs/
+features/
+MetaData/
 model_input.py
 model_params.py
 model_test.py
