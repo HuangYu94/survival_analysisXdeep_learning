@@ -178,11 +178,6 @@ model_dict.clear()
 #         feature = model.predict(x)
 #         features = np.concatenate((features, feature.reshape((1, -1))))
 #
-# np.savetxt('extracted.txt', features)
-# np.savetxt('patient_id.txt', np.asarray(corresponding_id_lst), fmt='%s')
-# np.savetxt('survival months.txt', np.asarray(survival_months_lst))
-# np.savetxt('cencored.txt', np.asarray(censored_lst))
-
 # features_centered = features - np.mean(features, axis=1).reshape((-1, 1))
 # pca = PCA(n_components=50)
 # features_low = pca.fit_transform(features)
