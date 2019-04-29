@@ -67,8 +67,8 @@ def calc_at_risk(X, Y, batch_size):
     """
 
     values, order = tf.nn.top_k(Y['survival'], batch_size, sorted=True)
-    values = tf.reverse(values, axis=[-1])
-    order = tf.reverse(order, axis=[-1])
+    values = tf.reverse(values, axis=[0])
+    order = tf.reverse(order, axis=[0])
     sorted_survivals = values
     Y['at_risk'] = tf.nn.top_k(sorted_survivals, batch_size, sorted=False).indices
     Y['survival'] = sorted_survivals
@@ -91,8 +91,9 @@ def loss(logits, labels):
     factorized_logits = logits - tf.reduce_max(logits)  # subtract maximum to facilitate computation
     exp = tf.exp(factorized_logits)
     partial_sum = tf.cumsum(exp, reverse=True)  # get the reversed partial cumulative sum
-    log_at_risk = tf.log(tf.gather(partial_sum, tf.reshape(labels['at_risk'], [-1]))) + tf.reduce_max(
-        logits)  # add maximum back
+    # log_at_risk = tf.log(tf.gather(partial_sum, tf.reshape(labels['at_risk'], [-1]))) + tf.reduce_max(
+    #     logits)  # add maximum back
+    log_at_risk = tf.log(partial_sum) + tf.reduce_max(logits)
     diff = tf.subtract(logits, log_at_risk)
     times = tf.reshape(diff, [-1]) * tf.cast(labels['observed'], tf.float32)
     cost = - (tf.reduce_sum(times))
@@ -217,16 +218,16 @@ class DenseModel(object):
             with tf.variable_scope('layer_' + str(layer_idx)):
                 if layer_idx == 0:
                     weights = _variable_with_weight_decay('weights', (int(input_placeholder.shape[1]), layer_unit_num),
-                                                          stddev=0.001, wd=1e-6)
+                                                          stddev=0.001, wd=1e-5)
                     last_out = input_placeholder
                 else:
                     weights = _variable_with_weight_decay('weights', (layer_specs[layer_idx-1], layer_unit_num),
-                                                          stddev=0.001, wd=1e-6)
+                                                          stddev=0.001, wd=1e-5)
                     last_out = out
                 self.all_params['layer' + str(layer_idx) + '_weights'] = weights
-                bias = _variable_on_cpu('bias', [layer_unit_num], tf.constant_initializer(0.0))
+                bias = _variable_on_cpu('bias', [layer_unit_num], tf.constant_initializer(0.1))
                 self.all_params['layer' + str(layer_idx) + '_bias'] = bias
-                out = tf.nn.bias_add(tf.matmul(last_out, weights), bias)
+                out = tf.nn.relu(tf.nn.bias_add(tf.matmul(last_out, weights), bias))
 
         self.out = out
 
@@ -259,7 +260,7 @@ X, Y = calc_at_risk(feature_ph, label, batch_size)
 dense_model = DenseModel(X, [1000, 256, 1])
 all_losses = loss(dense_model.out, Y)
 
-optimizer = tf.train.AdagradOptimizer(0.0001)
+optimizer = tf.train.AdagradOptimizer(0.0005)
 train_var = tf.trainable_variables()
 gradients = tf.gradients(all_losses, train_var)
 train_op = optimizer.apply_gradients(zip(gradients, train_var))
@@ -276,11 +277,17 @@ with tf.Session() as sess:
         epoch_loss = 0
         for batch_i in range(0, num_batches-1):
             grab_idx = train_case_idx_lst[batch_i*batch_size: (batch_i+1)*batch_size]
-            for _ in range(0, 100):
-                _, batch_loss = sess.run([train_op, all_losses],
+            for _ in range(0, 10):
+                _, batch_loss, f_ordered, f, sur_months, obs, risk_month = sess.run([train_op, all_losses, X, feature_ph, Y['survival'], Y['observed'], Y['at_risk']],
                                          feed_dict={feature_ph: train_features[grab_idx, :],
                                                     censored_ph: train_meta_dict['censored'][grab_idx],
                                                     survival_ph: train_meta_dict['survival months'][grab_idx]})
+                # print(f)
+                # print(f_ordered)
+                # print(sur_months)
+                # print(obs)
+                # print(risk_month)
+                # raise ValueError("STOP!")
             epoch_loss += batch_loss/batch_size
         last_batch_idx = train_case_idx_lst[(num_batches-1)*batch_size: num_batches*batch_size]
         batch_loss_val, risk_val = sess.run([all_losses, dense_model.out],
@@ -291,6 +298,8 @@ with tf.Session() as sess:
         epoch_loss = epoch_loss/num_batches
         val_CI = eval_CI(risk_val, train_meta_dict['survival months'][last_batch_idx],
                          train_meta_dict['censored'][last_batch_idx])
+        if np.isnan(epoch_loss):
+            raise ValueError("Train loss becomes nan!")
         print("epoch %d finish with epoch train loss %1.4f validation loss %1.4f validation CI %1.4f" %
               (epoch_step, epoch_loss, batch_loss_val, val_CI))
         # doing testing

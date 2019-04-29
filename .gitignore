@@ -116,8 +116,12 @@ train_results/
 *.jpg
 *.png
 *.txt
+*.tif
+*.h5
+*.tsv
 *2server.py
 # files not created by me
+*input/
 inputs/
 features/
 MetaData/
