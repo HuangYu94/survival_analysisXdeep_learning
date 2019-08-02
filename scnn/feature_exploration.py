@@ -3,37 +3,30 @@ import numpy as np
 import pandas as pd
 import tensorflow as tf
 
-def LoadFeatures(feature_dir, model_name):
+def LoadData(feature_dir, train_feature_names, test_feature_names, num_cases_train = 1216, num_cases_test = 256, num_random_crop=20, feature_dim = 256):
     """
-    function to load preprocessed deep features from specified model
+    function to load preprocessed deep features from specified model along with the labels
     :param feature_dir: directory name contains preprocessed feature files
-    :param model_name: name of the model
+    :param train_feature_names: list of train feature names
+    :param test_feature_names: list of test feature names
     :return: train_features: features for training
     :return: test_features: features for testing
     """
-    train_fname = os.path.join(feature_dir, 'train_' + model_name + '_features.txt')
-    train_features = np.loadtxt(train_fname)
-    test_fname = os.path.join(feature_dir, 'test_' + model_name + '_features.txt')
-    test_features = np.loadtxt(test_fname)
-    return train_features, test_features
-
-def LoadMeta(meta_dir):
-    """
-    load meta data from meta data directory
-    :param meta_dir: directory storing meta data files
-    :return: train_meta_dict: train dictionary contains meta data ['patient_id', 'censored', 'survival months']
-    :return: test_meta_dict: test dictionary contains meta data ['patient_id', 'censored', 'survival months']
-    """
-    train_meta_dict = {}
-    train_meta_dict['patient_id'] = np.genfromtxt(os.path.join(meta_dir, 'train_patient_id.txt'))
-    train_meta_dict['survival months'] = np.loadtxt(os.path.join(meta_dir, 'train_survival.txt'))
-    train_meta_dict['censored'] = np.loadtxt(os.path.join(meta_dir, 'train_censored.txt'))
-    test_meta_dict = {}
-    test_meta_dict['patient_id'] = np.genfromtxt(os.path.join(meta_dir, 'test_patient_id.txt'))
-    test_meta_dict['survival months'] = np.loadtxt(os.path.join(meta_dir, 'test_survival.txt'))
-    test_meta_dict['censored'] = np.loadtxt(os.path.join(meta_dir, 'test_censored.txt'))
-    return train_meta_dict, test_meta_dict
-
+    train_features = np.zeros(shape=(num_cases_train, num_random_crop, feature_dim))
+    for crop_idx, feature_name in enumerate(train_feature_names):
+        fname = os.path.join(feature_dir, feature_name + '.txt')
+        train_features[:, crop_idx, :] = np.loadtxt(fname)
+    test_features = np.zeros(shape=(num_cases_test, num_random_crop, feature_dim))
+    for crop_idx, feature_name in enumerate(test_feature_names):
+        fname = os.path.join(feature_dir, feature_name + '.txt')
+        test_features[:, crop_idx, :] = np.loadtxt(fname)
+    train_meta = {}
+    test_meta = {}
+    train_meta['survival'] = np.loadtxt(os.path.join(feature_dir, 'train_survival.txt'))
+    train_meta['censored'] = np.loadtxt(os.path.join(feature_dir, 'train_censor.txt'))
+    test_meta['survival'] = np.loadtxt(os.path.join(feature_dir, 'test_survival.txt'))
+    test_meta['censored'] = np.loadtxt(os.path.join(feature_dir, 'test_censor.txt'))
+    return train_features, test_features, train_meta, test_meta
 
 def calc_at_risk(X, Y, batch_size):
     """
@@ -91,9 +84,8 @@ def loss(logits, labels):
     factorized_logits = logits - tf.reduce_max(logits)  # subtract maximum to facilitate computation
     exp = tf.exp(factorized_logits)
     partial_sum = tf.cumsum(exp, reverse=True)  # get the reversed partial cumulative sum
-    # log_at_risk = tf.log(tf.gather(partial_sum, tf.reshape(labels['at_risk'], [-1]))) + tf.reduce_max(
-    #     logits)  # add maximum back
-    log_at_risk = tf.log(partial_sum) + tf.reduce_max(logits)
+    log_at_risk = tf.log(tf.gather(partial_sum, tf.reshape(labels['at_risk'], [-1]))) + tf.reduce_max(
+        logits)  # add maximum back
     diff = tf.subtract(logits, log_at_risk)
     times = tf.reshape(diff, [-1]) * tf.cast(labels['observed'], tf.float32)
     cost = - (tf.reduce_sum(times))
@@ -233,19 +225,23 @@ class DenseModel(object):
 
 
 
-batch_size = 64
-feature_dir = os.path.join(os.path.dirname(__file__), 'features')
-meta_dir = os.path.join(os.path.dirname(__file__), 'MetaData')
+batch_size = 32
+feature_dir = 'features'
+num_random_crop = 20
+train_feature_names = ['feature_train_cropped_' + str(i) for i in range(0, num_random_crop)]
+test_feature_names = ['feature_test_cropped_' + str(i) for i in range(0, num_random_crop)]
 
-train_features, test_features = LoadFeatures(feature_dir, 'ResNet50')
-num_cases_train, feature_dim = train_features.shape
+train_features, test_features, train_meta_dict, test_meta_dict = LoadData(feature_dir, train_feature_names,
+                                                                          test_feature_names)
 print(train_features.shape)
 print(test_features.shape)
-train_meta_dict, test_meta_dict = LoadMeta(meta_dir)
-print(train_meta_dict['survival months'].shape)
+print(train_meta_dict['survival'].shape)
 print(train_meta_dict['censored'].shape)
-print(test_meta_dict['survival months'].shape)
-num_cases_test, _ = test_features.shape
+print(test_meta_dict['survival'].shape)
+print(test_meta_dict['censored'].shape)
+num_cases_train, _, feature_dim = train_features.shape
+
+num_cases_test, _, _ = test_features.shape
 
 
 feature_ph = tf.placeholder(dtype=tf.float32, shape=[batch_size, feature_dim])
@@ -257,10 +253,10 @@ label['survival'] = survival_ph
 label['censored'] = censored_ph
 label['observed'] = 1 - censored_ph
 X, Y = calc_at_risk(feature_ph, label, batch_size)
-dense_model = DenseModel(X, [1000, 256, 1])
+dense_model = DenseModel(X, [256, 1])
 all_losses = loss(dense_model.out, Y)
 
-optimizer = tf.train.AdagradOptimizer(0.0005)
+optimizer = tf.train.AdagradOptimizer(0.001)
 train_var = tf.trainable_variables()
 gradients = tf.gradients(all_losses, train_var)
 train_op = optimizer.apply_gradients(zip(gradients, train_var))
@@ -275,41 +271,43 @@ with tf.Session() as sess:
     for epoch_step in range(0, num_epoch):
         np.random.shuffle(train_case_idx_lst)
         epoch_loss = 0
-        for batch_i in range(0, num_batches-1):
+        for batch_i in range(0, num_batches):
             grab_idx = train_case_idx_lst[batch_i*batch_size: (batch_i+1)*batch_size]
-            for _ in range(0, 10):
+            batch_loss_cum = 0
+            for crop_idx in range(0, num_random_crop):
                 _, batch_loss, f_ordered, f, sur_months, obs, risk_month = sess.run([train_op, all_losses, X, feature_ph, Y['survival'], Y['observed'], Y['at_risk']],
-                                         feed_dict={feature_ph: train_features[grab_idx, :],
+                                         feed_dict={feature_ph: train_features[grab_idx, crop_idx, :],
                                                     censored_ph: train_meta_dict['censored'][grab_idx],
-                                                    survival_ph: train_meta_dict['survival months'][grab_idx]})
+                                                    survival_ph: train_meta_dict['survival'][grab_idx]})
                 # print(f)
                 # print(f_ordered)
                 # print(sur_months)
                 # print(obs)
                 # print(risk_month)
                 # raise ValueError("STOP!")
-            epoch_loss += batch_loss/batch_size
-        last_batch_idx = train_case_idx_lst[(num_batches-1)*batch_size: num_batches*batch_size]
-        batch_loss_val, risk_val = sess.run([all_losses, dense_model.out],
-                                            feed_dict={feature_ph: train_features[last_batch_idx, :],
-                                                       censored_ph: train_meta_dict['censored'][last_batch_idx],
-                                                       survival_ph: train_meta_dict['survival months'][last_batch_idx]})
-        batch_loss_val = batch_loss_val/batch_size
+                batch_loss_cum += batch_loss
+            epoch_loss += batch_loss/batch_size/num_random_crop
         epoch_loss = epoch_loss/num_batches
-        val_CI = eval_CI(risk_val, train_meta_dict['survival months'][last_batch_idx],
-                         train_meta_dict['censored'][last_batch_idx])
+
         if np.isnan(epoch_loss):
             raise ValueError("Train loss becomes nan!")
-        print("epoch %d finish with epoch train loss %1.4f validation loss %1.4f validation CI %1.4f" %
-              (epoch_step, epoch_loss, batch_loss_val, val_CI))
+        print("epoch %d finish with epoch train loss %1.4f" %
+              (epoch_step, epoch_loss))
         # doing testing
         test_CI = 0
         for batch_i in range(0, num_batches_test):
             grab_idx = test_case_idx_lst[batch_i*batch_size: (batch_i+1)*batch_size]
-            risk_test = sess.run(dense_model.out, feed_dict={feature_ph: test_features[grab_idx, :],
-                                                             censored_ph: test_meta_dict['censored'][grab_idx],
-                                                             survival_ph: test_meta_dict['survival months'][grab_idx]})
-            test_CI += eval_CI(risk_test, test_meta_dict['survival months'][grab_idx], test_meta_dict['censored'][grab_idx])
+            for crop_idx in range(0, num_random_crop):
+                risk_test = sess.run(dense_model.out, feed_dict={feature_ph: test_features[grab_idx, crop_idx, :],
+                                                                 censored_ph: test_meta_dict['censored'][grab_idx],
+                                                                 survival_ph: test_meta_dict['survival'][grab_idx]})
+                if crop_idx == 0:
+                    risk_test_batch = risk_test
+                else:
+                    risk_test_batch = np.concatenate((risk_test_batch, risk_test), axis=1)
+                risk_test = np.median(risk_test_batch, axis=1)
+
+            test_CI += eval_CI(risk_test, test_meta_dict['survival'][grab_idx], test_meta_dict['censored'][grab_idx])
         test_CI = test_CI / num_batches_test
         print("test CI is %1.4f" % test_CI)
 

@@ -111,12 +111,15 @@ images/
 checkpoints/
 tmp/
 train_results/
+
 *_log/
 *.tfrecords
 *.jpg
 *.png
 *.txt
+*.json
 *.tif
+*.zip
 *.h5
 *.tsv
 *2server.py
